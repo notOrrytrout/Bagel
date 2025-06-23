@@ -72,11 +72,14 @@ vae_transform = ImageTransform(1024, 512, 16)
 vit_transform = ImageTransform(980, 224, 14)
 
 # Model Loading and Multi GPU Infernece Preparing
-device_map = infer_auto_device_map(
-    model,
-    max_memory={i: "80GiB" for i in range(torch.cuda.device_count())},
-    no_split_module_classes=["Bagel", "Qwen2MoTDecoderLayer"],
-)
+if torch.cuda.is_available():
+    device_map = infer_auto_device_map(
+        model,
+        max_memory={i: "80GiB" for i in range(torch.cuda.device_count())},
+        no_split_module_classes=["Bagel", "Qwen2MoTDecoderLayer"],
+    )
+else:
+    device_map = {"": "mps" if torch.backends.mps.is_available() else "cpu"}
 
 same_device_modules = [
     'language_model.model.embed_tokens',
@@ -88,27 +91,34 @@ same_device_modules = [
     'vit_pos_embed'
 ]
 
-if torch.cuda.device_count() == 1:
-    first_device = device_map.get(same_device_modules[0], "cuda:0")
-    for k in same_device_modules:
-        if k in device_map:
-            device_map[k] = first_device
-        else:
-            device_map[k] = "cuda:0"
-else:
-    first_device = device_map.get(same_device_modules[0])
-    for k in same_device_modules:
-        if k in device_map:
-            device_map[k] = first_device
+if torch.cuda.is_available():
+    if torch.cuda.device_count() == 1:
+        first_device = device_map.get(same_device_modules[0], "cuda:0")
+        for k in same_device_modules:
+            if k in device_map:
+                device_map[k] = first_device
+            else:
+                device_map[k] = "cuda:0"
+    else:
+        first_device = device_map.get(same_device_modules[0])
+        for k in same_device_modules:
+            if k in device_map:
+                device_map[k] = first_device
+
+if not torch.cuda.is_available() and args.mode != 1:
+    print("Quantized modes require CUDA. Falling back to mode 1.")
+    args.mode = 1
+
+dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 
 if args.mode == 1:
     model = load_checkpoint_and_dispatch(
         model,
         checkpoint=os.path.join(model_path, "ema.safetensors"),
         device_map=device_map,
-        offload_buffers=True,
+        offload_buffers=torch.cuda.is_available(),
         offload_folder="offload",
-        dtype=torch.bfloat16,
+        dtype=dtype,
         force_hooks=True,
     ).eval()
 elif args.mode == 2: # NF4
