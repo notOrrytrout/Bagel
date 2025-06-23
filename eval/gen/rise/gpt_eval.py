@@ -10,7 +10,7 @@ import time
 import re
 import openai
 import pandas as pd
-from utils import *
+from .utils import *
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
 

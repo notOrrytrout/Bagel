@@ -1,4 +1,4 @@
-decord==0.6.0
+decord==0.6.0 ; sys_platform != 'darwin'
 einops==0.8.1
 huggingface_hub==0.29.1
 matplotlib==3.7.0
@@ -20,7 +20,7 @@ gradio
 setuptools
 wheel
 ninja
-bitsandbytes
+bitsandbytes ; sys_platform != 'darwin'
 xlsxwriter
-triton ; sys_platform != 'win32'
+triton ; sys_platform == 'linux'
 triton-windows ; sys_platform == 'win32'

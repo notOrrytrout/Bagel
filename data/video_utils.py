@@ -16,7 +16,11 @@ import random
 import re
 
 import numpy as np
-import decord
+try:
+    import decord  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    decord = None
+    print("Warning: decord not found. Video features will be unavailable.")
 from PIL import Image
 
 
@@ -61,6 +65,8 @@ def get_frame_indices(num_frames, vlen, sample='rand', fix_start=None, input_fps
 
 
 def read_frames_decord(video_path, num_frames, sample='rand', fix_start=None, clip=None, min_num_frames=4):
+    if decord is None:
+        raise ImportError("decord is required for video reading. Install from source or remove video features.")
     video_reader = decord.VideoReader(video_path, num_threads=1)
     vlen = len(video_reader)
     fps = video_reader.get_avg_fps()
@@ -127,6 +133,8 @@ class FrameSampler:
 
 
 def decode_video_byte(video_bytes):
+    if decord is None:
+        raise ImportError("decord is required for video decoding. Install from source or remove video features.")
     video_stream = io.BytesIO(video_bytes)
     vr = decord.VideoReader(video_stream)
     return vr
@@ -134,6 +142,8 @@ def decode_video_byte(video_bytes):
 
 def sample_mp4_frames(mp4_p, n_frames=None, fps=None, return_frame_indices=False, random_sample=False):
     if isinstance(mp4_p, str):
+        if decord is None:
+            raise ImportError("decord is required for video decoding. Install from source or remove video features.")
         vr = decord.VideoReader(mp4_p, num_threads=1)
     elif isinstance(mp4_p, decord.video_reader.VideoReader):
         vr = mp4_p
@@ -156,6 +166,8 @@ def sample_mp4_frames(mp4_p, n_frames=None, fps=None, return_frame_indices=False
 
 def sample_mp4_frames_by_indices(mp4_p, frame_indices: list):
     if isinstance(mp4_p, str):
+        if decord is None:
+            raise ImportError("decord is required for video decoding. Install from source or remove video features.")
         vr = decord.VideoReader(mp4_p, num_threads=1)
     elif isinstance(mp4_p, decord.video_reader.VideoReader):
         vr = mp4_p

@@ -116,6 +116,27 @@ pip install -r requirements.txt
 pip install flash_attn==2.5.8 --no-build-isolation
 ```
 
+<details>
+<summary>Running on Apple Silicon (M-series)</summary>
+
+```
+conda create -n bagel python=3.10 -y
+conda activate bagel
+# Install PyTorch with MPS support
+pip install torch==2.5.1 torchvision==0.20.1
+# Install other dependencies (GPU-only packages are skipped)
+pip install -r requirements.txt
+# `flash_attn` and `bitsandbytes` won't be installed. The code falls back to
+# PyTorch attention when flash_attn is missing. `decord` has no prebuilt wheel
+# for Apple Silicon; remove it from `requirements.txt` or build from source if
+# you need video features.
+```
+
+Use `python app.py` to launch the demo. Quantized modes require CUDA and are
+not available on macOS.
+
+</details>
+
 2️⃣  Download pretrained checkpoint
 ```python
 from huggingface_hub import snapshot_download

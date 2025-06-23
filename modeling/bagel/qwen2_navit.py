@@ -21,7 +21,13 @@ from torch.nn.attention.flex_attention import flex_attention
 from torch.nn.functional import scaled_dot_product_attention
 from transformers.utils import ModelOutput
 
-from flash_attn import flash_attn_varlen_func
+try:
+    from flash_attn import flash_attn_varlen_func  # type: ignore
+    _flash_attn_available = True
+except Exception:  # pragma: no cover - optional dependency
+    flash_attn_varlen_func = None  # type: ignore
+    _flash_attn_available = False
+    print("Warning: flash_attn not found. Falling back to scaled_dot_product_attention.")
 from modeling.qwen2.modeling_qwen2 import (
     Qwen2Attention, 
     Qwen2MLP, 
@@ -38,6 +44,46 @@ torch._dynamo.config.cache_size_limit = 512
 torch._dynamo.config.accumulated_cache_size_limit = 4096
 # flex_attention = torch.compile(flex_attention) # , dynamic=True, mode='max-autotune'
 flex_attention = torch.compile(flex_attention)
+
+
+def flash_attn_varlen(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_k: torch.Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    causal: bool,
+):
+    """Wrapper that falls back to scaled_dot_product_attention when flash_attn is unavailable."""
+    if _flash_attn_available and q.is_cuda:
+        return flash_attn_varlen_func(
+            q=q,
+            k=k,
+            v=v,
+            cu_seqlens_q=cu_seqlens_q.to(torch.int32),
+            cu_seqlens_k=cu_seqlens_k.to(torch.int32),
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_k=max_seqlen_k,
+            causal=causal,
+        )
+
+    outputs = []
+    num_seq = cu_seqlens_q.numel() - 1
+    for i in range(num_seq):
+        qs = q[cu_seqlens_q[i] : cu_seqlens_q[i + 1]]
+        ks = k[cu_seqlens_k[i] : cu_seqlens_k[i + 1]]
+        vs = v[cu_seqlens_k[i] : cu_seqlens_k[i + 1]]
+        with sdpa_kernel(backends=[SDPBackend.EFFICIENT_ATTENTION]):
+            out = scaled_dot_product_attention(
+                qs.unsqueeze(0).transpose(1, 2),
+                ks.unsqueeze(0).transpose(1, 2),
+                vs.unsqueeze(0).transpose(1, 2),
+                is_causal=causal,
+            )
+        outputs.append(out.transpose(1, 2).squeeze(0))
+    return torch.cat(outputs, dim=0)
 
 
 class Qwen2Config(_Qwen2Config):
@@ -355,12 +401,12 @@ class PackedAttention(Qwen2Attention):
         cu_seqlens_q = torch.nn.functional.pad(torch.cumsum(query_lens, dim=0), (1, 0))
         cu_seqlens_k = torch.nn.functional.pad(torch.cumsum(key_values_lens, dim=0), (1, 0))
 
-        packed_attn_output = flash_attn_varlen_func(
+        packed_attn_output = flash_attn_varlen(
             q=packed_query_states,
             k=merged_key_states,
             v=merged_value_states,
-            cu_seqlens_q=cu_seqlens_q.to(torch.int32),
-            cu_seqlens_k=cu_seqlens_k.to(torch.int32),
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_k=cu_seqlens_k,
             max_seqlen_q=max(query_lens).item(),
             max_seqlen_k=max(key_values_lens).item(),
             causal=is_causal,
@@ -573,12 +619,12 @@ class PackedAttentionMoT(Qwen2Attention):
         cu_seqlens_q = torch.nn.functional.pad(torch.cumsum(query_lens, dim=0), (1, 0))
         cu_seqlens_k = torch.nn.functional.pad(torch.cumsum(key_values_lens, dim=0), (1, 0))
 
-        packed_attn_output = flash_attn_varlen_func(
+        packed_attn_output = flash_attn_varlen(
             q=packed_query_states,
             k=merged_key_states,
             v=merged_value_states,
-            cu_seqlens_q=cu_seqlens_q.to(torch.int32),
-            cu_seqlens_k=cu_seqlens_k.to(torch.int32),
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_k=cu_seqlens_k,
             max_seqlen_q=max(query_lens).item(),
             max_seqlen_k=max(key_values_lens).item(),
             causal=is_causal,

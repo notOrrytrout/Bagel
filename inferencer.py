@@ -227,7 +227,13 @@ class InterleaveInferencer:
         cfg_text_context = deepcopy(gen_context)
         cfg_img_context = deepcopy(gen_context)
 
-        with torch.autocast(device_type="cuda", enabled=True, dtype=torch.bfloat16):
+        device_type = "cuda" if torch.cuda.is_available() else (
+            "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+        autocast_dtype = torch.bfloat16 if device_type == "cuda" else (
+            torch.float16 if device_type == "mps" else torch.float32
+        )
+        with torch.autocast(device_type=device_type, enabled=device_type != "cpu", dtype=autocast_dtype):
             if think:
                 if understanding_output:
                     system_prompt = VLM_THINK_SYSTEM_PROMPT 
